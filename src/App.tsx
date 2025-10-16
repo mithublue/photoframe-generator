@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import {
   mergeImages,
@@ -16,13 +16,21 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [profileScale, setProfileScale] = useState(1);
   const [frameScale, setFrameScale] = useState(1);
+  const [profileRotation, setProfileRotation] = useState(0);
+  const [profileOffsetX, setProfileOffsetX] = useState(0);
+  const [profileOffsetY, setProfileOffsetY] = useState(0);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const profileImageElementRef = useRef<HTMLImageElement | null>(null);
+  const frameImageElementRef = useRef<HTMLImageElement | null>(null);
 
   const handleProfileSelect = (file: File) => {
     setProfileImage(file);
     const url = URL.createObjectURL(file);
     setProfilePreview(url);
     setProfileScale(1);
+    setProfileRotation(0);
+    setProfileOffsetX(0);
+    setProfileOffsetY(0);
   };
 
   const handleFrameSelect = (file: File) => {
@@ -38,6 +46,9 @@ function App() {
     setProfilePreview('');
     setMergedImage('');
     setProfileScale(1);
+    setProfileRotation(0);
+    setProfileOffsetX(0);
+    setProfileOffsetY(0);
   };
 
   const handleClearFrame = () => {
@@ -48,6 +59,42 @@ function App() {
     setFrameScale(1);
   };
 
+  const renderPreview = useCallback(() => {
+    const canvas = previewCanvasRef.current;
+
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) return;
+
+    const profileImg = profileImageElementRef.current;
+    const frameImg = frameImageElementRef.current;
+
+    if (!profileImg || !frameImg) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
+    try {
+      renderCompositeToCanvas(canvas, ctx, profileImg, frameImg, {
+        profileScale,
+        frameScale,
+        profileRotation,
+        profileOffsetX,
+        profileOffsetY,
+      });
+    } catch (error) {
+      console.error('Failed to render preview:', error);
+    }
+  }, [
+    profileScale,
+    frameScale,
+    profileRotation,
+    profileOffsetX,
+    profileOffsetY,
+  ]);
+
   const handleGenerate = async () => {
     if (!profileImage || !frameImage) return;
 
@@ -56,6 +103,9 @@ function App() {
       const blob = await mergeImages(profileImage, frameImage, {
         profileScale,
         frameScale,
+        profileRotation,
+        profileOffsetX,
+        profileOffsetY,
       });
       const url = URL.createObjectURL(blob);
       setMergedImage(url);
@@ -87,6 +137,8 @@ function App() {
     if (!ctx) return;
 
     if (!profilePreview || !framePreview) {
+      profileImageElementRef.current = null;
+      frameImageElementRef.current = null;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       return;
     }
@@ -94,30 +146,26 @@ function App() {
     let isCancelled = false;
     const profileImg = new Image();
     const frameImg = new Image();
+    let profileReady = false;
+    let frameReady = false;
 
-    const handleRender = () => {
-      if (isCancelled) return;
+    const finalize = () => {
+      if (isCancelled || !profileReady || !frameReady) return;
 
-      try {
-        renderCompositeToCanvas(canvas, ctx, profileImg, frameImg, {
-          profileScale,
-          frameScale,
-        });
-      } catch (error) {
-        console.error('Failed to render preview:', error);
-      }
+      profileImageElementRef.current = profileImg;
+      frameImageElementRef.current = frameImg;
+      renderPreview();
     };
 
-    let loadedCount = 0;
-    const handleLoad = () => {
-      loadedCount += 1;
-      if (loadedCount === 2) {
-        handleRender();
-      }
+    profileImg.onload = () => {
+      profileReady = true;
+      finalize();
     };
 
-    profileImg.onload = handleLoad;
-    frameImg.onload = handleLoad;
+    frameImg.onload = () => {
+      frameReady = true;
+      finalize();
+    };
 
     profileImg.onerror = (err) => {
       console.error('Failed to load profile preview image:', err);
@@ -130,10 +178,24 @@ function App() {
     profileImg.src = profilePreview;
     frameImg.src = framePreview;
 
+    if (profileImg.complete && profileImg.naturalWidth) {
+      profileReady = true;
+    }
+
+    if (frameImg.complete && frameImg.naturalWidth) {
+      frameReady = true;
+    }
+
+    finalize();
+
     return () => {
       isCancelled = true;
     };
-  }, [profilePreview, framePreview, profileScale, frameScale]);
+  }, [profilePreview, framePreview, renderPreview]);
+
+  useEffect(() => {
+    renderPreview();
+  }, [renderPreview]);
 
   useEffect(() => {
     return () => {
@@ -255,6 +317,63 @@ function App() {
                   setFrameScale(parseFloat(event.target.value))
                 }
                 className="w-full accent-cyan-600"
+                disabled={!profilePreview || !framePreview}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-3 mt-6">
+            <div>
+              <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
+                <span>Rotate</span>
+                <span>{profileRotation}°</span>
+              </label>
+              <input
+                type="range"
+                min="-45"
+                max="45"
+                step="1"
+                value={profileRotation}
+                onChange={(event) =>
+                  setProfileRotation(parseInt(event.target.value, 10))
+                }
+                className="w-full accent-violet-600"
+                disabled={!profilePreview || !framePreview}
+              />
+            </div>
+            <div>
+              <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
+                <span>Move Left/Right</span>
+                <span>{profileOffsetX}px</span>
+              </label>
+              <input
+                type="range"
+                min="-100"
+                max="100"
+                step="1"
+                value={profileOffsetX}
+                onChange={(event) =>
+                  setProfileOffsetX(parseInt(event.target.value, 10))
+                }
+                className="w-full accent-indigo-600"
+                disabled={!profilePreview || !framePreview}
+              />
+            </div>
+            <div>
+              <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
+                <span>Move Up/Down</span>
+                <span>{profileOffsetY}px</span>
+              </label>
+              <input
+                type="range"
+                min="-100"
+                max="100"
+                step="1"
+                value={profileOffsetY}
+                onChange={(event) =>
+                  setProfileOffsetY(parseInt(event.target.value, 10))
+                }
+                className="w-full accent-purple-600"
                 disabled={!profilePreview || !framePreview}
               />
             </div>

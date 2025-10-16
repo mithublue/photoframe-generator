@@ -1,6 +1,9 @@
 export interface CompositeOptions {
   profileScale?: number;
   frameScale?: number;
+  profileRotation?: number; // degrees
+  profileOffsetX?: number; // pixels
+  profileOffsetY?: number; // pixels
 }
 
 export function renderCompositeToCanvas(
@@ -8,7 +11,13 @@ export function renderCompositeToCanvas(
   ctx: CanvasRenderingContext2D,
   profile: HTMLImageElement,
   frame: HTMLImageElement,
-  { profileScale = 1, frameScale = 1 }: CompositeOptions = {}
+  {
+    profileScale = 1,
+    frameScale = 1,
+    profileRotation = 0,
+    profileOffsetX = 0,
+    profileOffsetY = 0,
+  }: CompositeOptions = {}
 ) {
   const frameWidth = frame.naturalWidth || frame.width;
   const frameHeight = frame.naturalHeight || frame.height;
@@ -31,20 +40,27 @@ export function renderCompositeToCanvas(
   );
   const finalProfileWidth = profileWidth * baseProfileScale * profileScale;
   const finalProfileHeight = profileHeight * baseProfileScale * profileScale;
-  const profileOffsetX = (canvas.width - finalProfileWidth) / 2;
-  const profileOffsetY = (canvas.height - finalProfileHeight) / 2;
+  const baseProfileOffsetX = (canvas.width - finalProfileWidth) / 2;
+  const baseProfileOffsetY = (canvas.height - finalProfileHeight) / 2;
+  const profileCenterX = baseProfileOffsetX + finalProfileWidth / 2 + profileOffsetX;
+  const profileCenterY = baseProfileOffsetY + finalProfileHeight / 2 + profileOffsetY;
+  const rotationRadians = (profileRotation * Math.PI) / 180;
 
   const frameOffsetX = (canvas.width - scaledFrameWidth) / 2;
   const frameOffsetY = (canvas.height - scaledFrameHeight) / 2;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate(profileCenterX, profileCenterY);
+  ctx.rotate(rotationRadians);
   ctx.drawImage(
     profile,
-    profileOffsetX,
-    profileOffsetY,
+    -finalProfileWidth / 2,
+    -finalProfileHeight / 2,
     finalProfileWidth,
     finalProfileHeight
   );
+  ctx.restore();
   ctx.drawImage(frame, frameOffsetX, frameOffsetY, scaledFrameWidth, scaledFrameHeight);
 }
 
@@ -66,7 +82,13 @@ export async function mergeImages(
     const frame = new Image();
     const profileUrl = URL.createObjectURL(profileImage);
     const frameUrl = URL.createObjectURL(frameImage);
-    const { profileScale = 1, frameScale = 1 } = options;
+    const {
+      profileScale = 1,
+      frameScale = 1,
+      profileRotation = 0,
+      profileOffsetX = 0,
+      profileOffsetY = 0,
+    } = options;
 
     let profileLoaded = false;
     let frameLoaded = false;
@@ -78,6 +100,9 @@ export async function mergeImages(
         renderCompositeToCanvas(canvas, ctx, profile, frame, {
           profileScale,
           frameScale,
+          profileRotation,
+          profileOffsetX,
+          profileOffsetY,
         });
       } catch (error) {
         URL.revokeObjectURL(profileUrl);
