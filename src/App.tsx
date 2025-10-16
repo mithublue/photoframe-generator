@@ -1,6 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ImageUploader } from './components/ImageUploader';
-import { mergeImages, downloadImage } from './utils/imageProcessor';
+import {
+  mergeImages,
+  downloadImage,
+  renderCompositeToCanvas,
+} from './utils/imageProcessor';
 import { Download, Sparkles, Image as ImageIcon } from 'lucide-react';
 
 function App() {
@@ -10,17 +14,22 @@ function App() {
   const [framePreview, setFramePreview] = useState<string>('');
   const [mergedImage, setMergedImage] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [profileScale, setProfileScale] = useState(1);
+  const [frameScale, setFrameScale] = useState(1);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const handleProfileSelect = (file: File) => {
     setProfileImage(file);
     const url = URL.createObjectURL(file);
     setProfilePreview(url);
+    setProfileScale(1);
   };
 
   const handleFrameSelect = (file: File) => {
     setFrameImage(file);
     const url = URL.createObjectURL(file);
     setFramePreview(url);
+    setFrameScale(1);
   };
 
   const handleClearProfile = () => {
@@ -28,6 +37,7 @@ function App() {
     setProfileImage(null);
     setProfilePreview('');
     setMergedImage('');
+    setProfileScale(1);
   };
 
   const handleClearFrame = () => {
@@ -35,6 +45,7 @@ function App() {
     setFrameImage(null);
     setFramePreview('');
     setMergedImage('');
+    setFrameScale(1);
   };
 
   const handleGenerate = async () => {
@@ -42,7 +53,10 @@ function App() {
 
     setIsProcessing(true);
     try {
-      const blob = await mergeImages(profileImage, frameImage);
+      const blob = await mergeImages(profileImage, frameImage, {
+        profileScale,
+        frameScale,
+      });
       const url = URL.createObjectURL(blob);
       setMergedImage(url);
     } catch (error) {
@@ -62,6 +76,64 @@ function App() {
         downloadImage(blob, 'framed-photo.png');
       });
   };
+
+  useEffect(() => {
+    const canvas = previewCanvasRef.current;
+
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) return;
+
+    if (!profilePreview || !framePreview) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
+    let isCancelled = false;
+    const profileImg = new Image();
+    const frameImg = new Image();
+
+    const handleRender = () => {
+      if (isCancelled) return;
+
+      try {
+        renderCompositeToCanvas(canvas, ctx, profileImg, frameImg, {
+          profileScale,
+          frameScale,
+        });
+      } catch (error) {
+        console.error('Failed to render preview:', error);
+      }
+    };
+
+    let loadedCount = 0;
+    const handleLoad = () => {
+      loadedCount += 1;
+      if (loadedCount === 2) {
+        handleRender();
+      }
+    };
+
+    profileImg.onload = handleLoad;
+    frameImg.onload = handleLoad;
+
+    profileImg.onerror = (err) => {
+      console.error('Failed to load profile preview image:', err);
+    };
+
+    frameImg.onerror = (err) => {
+      console.error('Failed to load frame preview image:', err);
+    };
+
+    profileImg.src = profilePreview;
+    frameImg.src = framePreview;
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [profilePreview, framePreview, profileScale, frameScale]);
 
   useEffect(() => {
     return () => {
@@ -127,6 +199,73 @@ function App() {
           </div>
         </div>
 
+        <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 hover:shadow-2xl transition-shadow mb-8">
+          <div className="flex items-center gap-2 mb-6">
+            <div className="bg-emerald-100 p-2 rounded-lg">
+              <Sparkles className="w-5 h-5 text-emerald-600" />
+            </div>
+            <h2 className="text-2xl font-semibold text-gray-800">Live Preview</h2>
+          </div>
+
+          <div className="bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4 flex items-center justify-center min-h-[280px] mb-6">
+            {profilePreview && framePreview ? (
+              <canvas
+                ref={previewCanvasRef}
+                className="w-full max-w-2xl rounded-lg shadow-lg"
+                style={{ height: 'auto' }}
+              />
+            ) : (
+              <p className="text-gray-500 text-center">
+                Upload both your photo and frame to see a live preview.
+              </p>
+            )}
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-2">
+            <div>
+              <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
+                <span>Profile Zoom</span>
+                <span>{Math.round(profileScale * 100)}%</span>
+              </label>
+              <input
+                type="range"
+                min="0.5"
+                max="1.5"
+                step="0.01"
+                value={profileScale}
+                onChange={(event) =>
+                  setProfileScale(parseFloat(event.target.value))
+                }
+                className="w-full accent-blue-600"
+                disabled={!profilePreview || !framePreview}
+              />
+            </div>
+            <div>
+              <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
+                <span>Frame Zoom</span>
+                <span>{Math.round(frameScale * 100)}%</span>
+              </label>
+              <input
+                type="range"
+                min="0.8"
+                max="1.2"
+                step="0.01"
+                value={frameScale}
+                onChange={(event) =>
+                  setFrameScale(parseFloat(event.target.value))
+                }
+                className="w-full accent-cyan-600"
+                disabled={!profilePreview || !framePreview}
+              />
+            </div>
+          </div>
+
+          <p className="text-sm text-gray-500 mt-6">
+            Adjust the zoom levels until your photo and frame align perfectly. The
+            generated image will use the preview settings.
+          </p>
+        </div>
+
         <div className="text-center mb-8">
           <button
             onClick={handleGenerate}
@@ -174,6 +313,10 @@ function App() {
             </div>
           </div>
         )}
+
+        <footer className="text-center text-sm text-gray-500 mt-12">
+          Developed by Mithu A Quayium
+        </footer>
       </div>
     </div>
   );
