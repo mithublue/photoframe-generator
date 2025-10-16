@@ -10,7 +10,6 @@ function App() {
   const [framePreview, setFramePreview] = useState<string>('');
   const [mergedImage, setMergedImage] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [profileZoom, setProfileZoom] = useState<number>(1);
 
   const handleProfileSelect = (file: File) => {
     setProfileImage(file);
@@ -29,7 +28,6 @@ function App() {
     setProfileImage(null);
     setProfilePreview('');
     setMergedImage('');
-    setProfileZoom(1);
   };
 
   const handleClearFrame = () => {
@@ -44,7 +42,7 @@ function App() {
 
     setIsProcessing(true);
     try {
-      const blob = await mergeImages(profileImage, frameImage, profileZoom);
+      const blob = await mergeImages(profileImage, frameImage);
       const url = URL.createObjectURL(blob);
       setMergedImage(url);
     } catch (error) {
@@ -104,9 +102,6 @@ function App() {
               onImageSelect={handleProfileSelect}
               preview={profilePreview}
               onClear={handleClearProfile}
-              showZoomControls={true}
-              zoom={profileZoom}
-              onZoomChange={setProfileZoom}
             />
             <p className="text-sm text-gray-500 mt-3">
               This will be your base image that appears inside the frame

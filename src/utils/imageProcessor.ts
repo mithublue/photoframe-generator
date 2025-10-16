@@ -1,7 +1,6 @@
 export async function mergeImages(
   profileImage: File,
-  frameImage: File,
-  zoom: number = 1
+  frameImage: File
 ): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
@@ -24,12 +23,7 @@ export async function mergeImages(
       canvas.width = frame.width;
       canvas.height = frame.height;
 
-      const scaledWidth = canvas.width * zoom;
-      const scaledHeight = canvas.height * zoom;
-      const offsetX = (canvas.width - scaledWidth) / 2;
-      const offsetY = (canvas.height - scaledHeight) / 2;
-
-      ctx.drawImage(profile, offsetX, offsetY, scaledWidth, scaledHeight);
+      ctx.drawImage(profile, 0, 0, canvas.width, canvas.height);
       ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
 
       canvas.toBlob(
