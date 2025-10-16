@@ -13,6 +13,8 @@ export async function mergeImages(
 
     const profile = new Image();
     const frame = new Image();
+    const profileUrl = URL.createObjectURL(profileImage);
+    const frameUrl = URL.createObjectURL(frameImage);
 
     let profileLoaded = false;
     let frameLoaded = false;
@@ -20,17 +22,43 @@ export async function mergeImages(
     const tryMerge = () => {
       if (!profileLoaded || !frameLoaded) return;
 
-      canvas.width = frame.width;
-      canvas.height = frame.height;
+      const frameWidth = frame.naturalWidth || frame.width;
+      const frameHeight = frame.naturalHeight || frame.height;
+      const profileWidth = profile.naturalWidth || profile.width;
+      const profileHeight = profile.naturalHeight || profile.height;
 
-      ctx.drawImage(profile, 0, 0, canvas.width, canvas.height);
+      if (!frameWidth || !frameHeight || !profileWidth || !profileHeight) {
+        URL.revokeObjectURL(profileUrl);
+        URL.revokeObjectURL(frameUrl);
+        reject(new Error('Invalid image dimensions'));
+        return;
+      }
+
+      canvas.width = frameWidth;
+      canvas.height = frameHeight;
+
+      const scale = Math.max(
+        canvas.width / profileWidth,
+        canvas.height / profileHeight
+      );
+      const drawWidth = profileWidth * scale;
+      const drawHeight = profileHeight * scale;
+      const offsetX = (canvas.width - drawWidth) / 2;
+      const offsetY = (canvas.height - drawHeight) / 2;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(profile, offsetX, offsetY, drawWidth, drawHeight);
       ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
 
       canvas.toBlob(
         (blob) => {
           if (blob) {
+            URL.revokeObjectURL(profileUrl);
+            URL.revokeObjectURL(frameUrl);
             resolve(blob);
           } else {
+            URL.revokeObjectURL(profileUrl);
+            URL.revokeObjectURL(frameUrl);
             reject(new Error('Failed to create blob'));
           }
         },
@@ -49,11 +77,19 @@ export async function mergeImages(
       tryMerge();
     };
 
-    profile.onerror = () => reject(new Error('Failed to load profile image'));
-    frame.onerror = () => reject(new Error('Failed to load frame image'));
+    profile.onerror = () => {
+      URL.revokeObjectURL(profileUrl);
+      URL.revokeObjectURL(frameUrl);
+      reject(new Error('Failed to load profile image'));
+    };
+    frame.onerror = () => {
+      URL.revokeObjectURL(profileUrl);
+      URL.revokeObjectURL(frameUrl);
+      reject(new Error('Failed to load frame image'));
+    };
 
-    profile.src = URL.createObjectURL(profileImage);
-    frame.src = URL.createObjectURL(frameImage);
+    profile.src = profileUrl;
+    frame.src = frameUrl;
   });
 }
 
