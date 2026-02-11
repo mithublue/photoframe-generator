@@ -36,7 +36,7 @@ function App() {
   const profileImageElementRef = useRef<HTMLImageElement | null>(null);
   const frameImageElementRef = useRef<HTMLImageElement | null>(null);
 
-  const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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';
+  const SLACK_WEBHOOK_URL = import.meta.env.VITE_SLACK_WEBHOOK_URL;
 
   const sendSlackNotification = async (frameName: string) => {
     try {
