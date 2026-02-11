@@ -6,7 +6,7 @@ import {
   downloadImage,
   renderCompositeToCanvas,
 } from './utils/imageProcessor';
-import { Download, Sparkles, Image as ImageIcon, Circle, MousePointer2, Square } from 'lucide-react';
+import { Download, Sparkles, Image as ImageIcon, Circle, MousePointer2, Square, Layers } from 'lucide-react';
 
 function App() {
   const [profileImage, setProfileImage] = useState<File | null>(null);
@@ -392,7 +392,7 @@ function App() {
           <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 hover:shadow-2xl transition-shadow">
             <div className="flex items-center gap-2 mb-6">
               <div className="bg-cyan-100 p-2 rounded-lg">
-                <Sparkles className="w-5 h-5 text-cyan-600" />
+                <Layers className="w-5 h-5 text-cyan-600" />
               </div>
               <h2 className="text-2xl font-semibold text-gray-800">Frame Overlay</h2>
             </div>
@@ -584,7 +584,6 @@ function App() {
             disabled={!profileImage || !frameImage || isProcessing}
             className="bg-gradient-to-r from-blue-600 to-cyan-600 text-white px-10 py-4 rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transition-all duration-200 inline-flex items-center gap-3"
           >
-            <Sparkles className="w-6 h-6" />
             {isProcessing ? 'Generating...' : 'Generate Framed Photo'}
           </button>
         </div>
