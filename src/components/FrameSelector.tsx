@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Check } from 'lucide-react';
 
 interface FrameSelectorProps {
-    onFrameSelect: (url: string) => void;
+    onFrameSelect: (url: string, label: string) => void;
     selectedUrl?: string; // To highlight the selected frame
 }
 
@@ -23,9 +23,9 @@ export function FrameSelector({ onFrameSelect, selectedUrl }: FrameSelectorProps
         }
     }, [selectedUrl]);
 
-    const handleSelect = (url: string) => {
+    const handleSelect = (url: string, label: string) => {
         setSelectedFrame(url);
-        onFrameSelect(url);
+        onFrameSelect(url, label);
     };
 
     return (
@@ -36,7 +36,7 @@ export function FrameSelector({ onFrameSelect, selectedUrl }: FrameSelectorProps
                 {AVAILABLE_FRAMES.map((frame) => (
                     <div
                         key={frame.id}
-                        onClick={() => handleSelect(frame.url)}
+                        onClick={() => handleSelect(frame.url, frame.label)}
                         className={`
               relative cursor-pointer rounded-xl overflow-hidden border-2 transition-all duration-200 group
               ${selectedFrame === frame.url

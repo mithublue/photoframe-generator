@@ -25,6 +25,7 @@ function App() {
 
   // UI State
   const [showMask, setShowMask] = useState(false);
+  const [selectedFrameName, setSelectedFrameName] = useState<string>('None');
 
   // Dragging state
   const [isDragging, setIsDragging] = useState(false);
@@ -34,6 +35,29 @@ function App() {
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const profileImageElementRef = useRef<HTMLImageElement | null>(null);
   const frameImageElementRef = useRef<HTMLImageElement | null>(null);
+
+  const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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';
+
+  const sendSlackNotification = async (frameName: string) => {
+    try {
+      // Create a fire-and-forget request with no-cors to avoid protocol errors
+      // using standard payload format for Slack Webhooks
+      const payload = {
+        text: `an user downloadeded a profile picture, frame: ${frameName}`
+      };
+
+      await fetch(SLACK_WEBHOOK_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (error) {
+      console.error('Failed to send Slack notification:', error);
+    }
+  };
 
   const handleProfileSelect = (file: File) => {
     setProfileImage(file);
@@ -45,8 +69,9 @@ function App() {
     setProfileOffsetY(0);
   };
 
-  const handleFrameSelect = (file: File) => {
+  const handleFrameSelect = (file: File, name: string = 'Uploaded Frame') => {
     setFrameImage(file);
+    setSelectedFrameName(name);
     const url = URL.createObjectURL(file);
     setFramePreview(url);
     setFrameScale(1);
@@ -54,13 +79,13 @@ function App() {
     setFrameOffsetY(0);
   };
 
-  const handlePredefinedFrameSelect = async (imageUrl: string) => {
+  const handlePredefinedFrameSelect = async (imageUrl: string, label: string) => {
     setIsProcessing(true);
     try {
       const response = await fetch(imageUrl);
       const blob = await response.blob();
       const file = new File([blob], "selected-frame.png", { type: "image/png" });
-      handleFrameSelect(file);
+      handleFrameSelect(file, label);
     } catch (error) {
       console.error("Failed to load predefined frame:", error);
       alert("Failed to load frame. Please try again.");
@@ -269,6 +294,10 @@ function App() {
 
   const handleDownload = () => {
     if (!mergedImage) return;
+
+    // Send Slack notification
+    sendSlackNotification(selectedFrameName);
+
     fetch(mergedImage)
       .then((res) => res.blob())
       .then((blob) => {
