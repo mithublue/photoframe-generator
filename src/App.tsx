@@ -6,7 +6,7 @@ import {
   downloadImage,
   renderCompositeToCanvas,
 } from './utils/imageProcessor';
-import { Download, Sparkles, Image as ImageIcon } from 'lucide-react';
+import { Download, Sparkles, Image as ImageIcon, Layers, Circle, Square, MousePointer2 } from 'lucide-react';
 
 function App() {
   const [profileImage, setProfileImage] = useState<File | null>(null);
@@ -23,9 +23,12 @@ function App() {
   const [frameOffsetX, setFrameOffsetX] = useState(0);
   const [frameOffsetY, setFrameOffsetY] = useState(0);
 
+  // UI State
+  const [showMask, setShowMask] = useState(false);
+  const [activeLayer, setActiveLayer] = useState<'profile' | 'frame'>('profile');
+
   // Dragging state
   const [isDragging, setIsDragging] = useState(false);
-  const [dragTarget, setDragTarget] = useState<'profile' | 'frame' | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -40,6 +43,7 @@ function App() {
     setProfileRotation(0);
     setProfileOffsetX(0);
     setProfileOffsetY(0);
+    setActiveLayer('profile'); // Switch focus
   };
 
   const handleFrameSelect = (file: File) => {
@@ -49,6 +53,7 @@ function App() {
     setFrameScale(1);
     setFrameOffsetX(0);
     setFrameOffsetY(0);
+    setActiveLayer('frame'); // Switch focus
   };
 
   const handlePredefinedFrameSelect = async (imageUrl: string) => {
@@ -89,11 +94,9 @@ function App() {
 
   const renderPreview = useCallback(() => {
     const canvas = previewCanvasRef.current;
-
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
-
     if (!ctx) return;
 
     const profileImg = profileImageElementRef.current;
@@ -120,6 +123,28 @@ function App() {
         frameOffsetY,
         outputSize: squareSize, // Enforce square output
       });
+
+      // Draw Circular Mask if enabled
+      if (showMask) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; // Semi-transparent black
+        ctx.beginPath();
+        // Outer rectangle (full canvas)
+        ctx.rect(0, 0, canvas.width, canvas.height);
+        // Inner circle (anticlockwise to create hole)
+        ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2, 0, Math.PI * 2, true);
+        ctx.fill();
+
+        // Draw a subtle border for the circle
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2 - 1, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.restore();
+      }
+
     } catch (error) {
       console.error('Failed to render preview:', error);
     }
@@ -131,76 +156,19 @@ function App() {
     profileOffsetY,
     frameOffsetX,
     frameOffsetY,
+    showMask
   ]);
 
   // --- Drag Handling ---
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!previewCanvasRef.current) return;
-
-    // We need to determine if the user clicked on a non-transparent part of the FRAME.
-    // If yes -> Drag Frame.
-    // If no -> Drag Profile.
-
-    const canvas = previewCanvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const clickX = (e.clientX - rect.left) * scaleX;
-    const clickY = (e.clientY - rect.top) * scaleY;
-
-    // Check pixel at click location
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    let hitFrame = false;
-    const frameImg = frameImageElementRef.current;
-
-    if (frameImg) {
-      const frameWidth = frameImg.naturalWidth || frameImg.width;
-      const frameHeight = frameImg.naturalHeight || frameImg.height;
-      const squareSize = Math.max(frameWidth, frameHeight);
-
-      const scaledFrameWidth = frameWidth * frameScale;
-      const scaledFrameHeight = frameHeight * frameScale;
-
-      // Calculate where the frame is drawn on the canvas
-      // (Must match logic in renderCompositeToCanvas)
-      const startFrameX = (squareSize - scaledFrameWidth) / 2;
-      const startFrameY = (squareSize - scaledFrameHeight) / 2;
-      const frameDrawX = startFrameX + frameOffsetX;
-      const frameDrawY = startFrameY + frameOffsetY;
-
-      // Check if click is within frame bounds
-      if (clickX >= frameDrawX && clickX <= frameDrawX + scaledFrameWidth &&
-        clickY >= frameDrawY && clickY <= frameDrawY + scaledFrameHeight) {
-
-        // Map click to source image coordinates
-        const relativeX = (clickX - frameDrawX) / frameScale;
-        const relativeY = (clickY - frameDrawY) / frameScale;
-
-        // To check alpha, we can draw the frame to a temp canvas
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = 1;
-        tempCanvas.height = 1;
-        const tempCtx = tempCanvas.getContext('2d');
-        if (tempCtx) {
-          tempCtx.drawImage(frameImg, relativeX, relativeY, 1, 1, 0, 0, 1, 1);
-          const pixel = tempCtx.getImageData(0, 0, 1, 1).data;
-          if (pixel[3] > 10) { // Alpha threshold
-            hitFrame = true;
-          }
-        }
-      }
-    }
-
-    setDragTarget(hitFrame ? 'frame' : 'profile');
     setIsDragging(true);
     setDragStart({ x: e.clientX, y: e.clientY });
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDragging || !dragTarget || !previewCanvasRef.current) return;
+    if (!isDragging || !previewCanvasRef.current) return;
 
     const canvas = previewCanvasRef.current;
 
@@ -215,7 +183,7 @@ function App() {
     const canvasDeltaX = deltaX * scaleFactor;
     const canvasDeltaY = deltaY * scaleFactor;
 
-    if (dragTarget === 'profile') {
+    if (activeLayer === 'profile') {
       setProfileOffsetX((prev) => prev + canvasDeltaX);
       setProfileOffsetY((prev) => prev + canvasDeltaY);
     } else {
@@ -228,14 +196,10 @@ function App() {
 
   const handleMouseUp = () => {
     setIsDragging(false);
-    setDragTarget(null);
   };
 
   const handleMouseLeave = () => {
-    if (isDragging) {
-      setIsDragging(false);
-      setDragTarget(null);
-    }
+    setIsDragging(false);
   }
 
   const handleGenerate = async () => {
@@ -280,11 +244,8 @@ function App() {
 
   useEffect(() => {
     const canvas = previewCanvasRef.current;
-
     if (!canvas) return;
-
     const ctx = canvas.getContext('2d');
-
     if (!ctx) return;
 
     if (!profilePreview || !framePreview) {
@@ -302,46 +263,21 @@ function App() {
 
     const finalize = () => {
       if (isCancelled || !profileReady || !frameReady) return;
-
       profileImageElementRef.current = profileImg;
       frameImageElementRef.current = frameImg;
       renderPreview();
     };
 
-    profileImg.onload = () => {
-      profileReady = true;
-      finalize();
-    };
-
-    frameImg.onload = () => {
-      frameReady = true;
-      finalize();
-    };
-
-    profileImg.onerror = (err) => {
-      console.error('Failed to load profile preview image:', err);
-    };
-
-    frameImg.onerror = (err) => {
-      console.error('Failed to load frame preview image:', err);
-    };
-
+    profileImg.onload = () => { profileReady = true; finalize(); };
+    frameImg.onload = () => { frameReady = true; finalize(); };
     profileImg.src = profilePreview;
     frameImg.src = framePreview;
 
-    if (profileImg.complete && profileImg.naturalWidth) {
-      profileReady = true;
-    }
-
-    if (frameImg.complete && frameImg.naturalWidth) {
-      frameReady = true;
-    }
-
+    if (profileImg.complete && profileImg.naturalWidth) profileReady = true;
+    if (frameImg.complete && frameImg.naturalWidth) frameReady = true;
     finalize();
 
-    return () => {
-      isCancelled = true;
-    };
+    return () => { isCancelled = true; };
   }, [profilePreview, framePreview, renderPreview]);
 
   useEffect(() => {
@@ -388,9 +324,6 @@ function App() {
               preview={profilePreview}
               onClear={handleClearProfile}
             />
-            <p className="text-sm text-gray-500 mt-3">
-              This will be your base image that appears inside the frame
-            </p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 hover:shadow-2xl transition-shadow">
@@ -406,9 +339,6 @@ function App() {
               preview={framePreview}
               onClear={handleClearFrame}
             />
-            <p className="text-sm text-gray-500 mt-3">
-              Choose a PNG frame with transparency for best results
-            </p>
           </div>
         </div>
 
@@ -417,15 +347,67 @@ function App() {
           selectedUrl={frameImage ? URL.createObjectURL(frameImage) : undefined}
         />
 
+        {/* Layer Control Panel - Horizontal */}
+        <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100 mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            <h2 className="text-xl font-semibold text-gray-800">Layers</h2>
+          </div>
+
+          <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+              <button
+                onClick={() => setActiveLayer('frame')}
+                className={`group flex items-center justify-between p-4 rounded-xl border-2 transition-all ${activeLayer === 'frame'
+                    ? 'border-cyan-500 bg-cyan-50 ring-2 ring-cyan-100'
+                    : 'border-slate-100 hover:border-slate-200 bg-slate-50'
+                  }`}
+              >
+                <div className="text-left">
+                  <div className={`font-medium ${activeLayer === 'frame' ? 'text-cyan-900' : 'text-slate-600'}`}>Select Frame</div>
+                  <div className="text-xs text-slate-400">Top Layer</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setActiveLayer('profile')}
+                className={`group flex items-center justify-between p-4 rounded-xl border-2 transition-all ${activeLayer === 'profile'
+                    ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-100'
+                    : 'border-slate-100 hover:border-slate-200 bg-slate-50'
+                  }`}
+              >
+                <div className="text-left">
+                  <div className={`font-medium ${activeLayer === 'profile' ? 'text-blue-900' : 'text-slate-600'}`}>Select Profile Photo</div>
+                  <div className="text-xs text-slate-400">Bottom Layer</div>
+                </div>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-4 px-4 border-l border-gray-100 min-w-[200px]">
+              <div>
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <span className="font-medium text-gray-700 group-hover:text-gray-900">Facebook Preview</span>
+                  <div
+                    className={`w-12 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out ${showMask ? 'bg-indigo-600' : 'bg-slate-200'}`}
+                    onClick={() => setShowMask(!showMask)}
+                  >
+                    <div className={`w-4 h-4 rounded-full bg-white shadow-sm transform transition-transform duration-200 ${showMask ? 'translate-x-6' : 'translate-x-0'}`} />
+                  </div>
+                </label>
+                <p className="text-xs text-slate-400 mt-1">
+                  Shows circular crop
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Canvas Area */}
         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 hover:shadow-2xl transition-shadow mb-8">
           <div className="flex items-center gap-2 mb-6">
-            <div className="bg-emerald-100 p-2 rounded-lg">
-              <Sparkles className="w-5 h-5 text-emerald-600" />
-            </div>
             <h2 className="text-2xl font-semibold text-gray-800">Live Preview</h2>
           </div>
 
-          <div className="bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4 flex items-center justify-center min-h-[400px] mb-6">
+          <div className="bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4 flex items-center justify-center min-h-[400px] mb-6 relative">
             {profilePreview && framePreview ? (
               <div className="relative shadow-xl rounded-lg overflow-hidden cursor-move">
                 <canvas
@@ -437,8 +419,9 @@ function App() {
                   className="w-full max-w-2xl bg-white"
                   style={{ height: 'auto', touchAction: 'none' }}
                 />
-                <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded pointer-events-none">
-                  Drag enabled ({dragTarget ? dragTarget.toUpperCase() : 'Hover to drag'})
+                <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm text-white text-xs px-3 py-1.5 rounded-lg pointer-events-none flex items-center gap-2 border border-white/10">
+                  <MousePointer2 className="w-3 h-3" />
+                  <span>Dragging: <strong>{activeLayer === 'profile' ? 'Profile Photo' : 'Frame'}</strong></span>
                 </div>
               </div>
             ) : (
@@ -448,106 +431,101 @@ function App() {
             )}
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            <div>
-              <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
-                <span>Profile Zoom</span>
-                <span>{Math.round(profileScale * 100)}%</span>
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="1.5"
-                step="0.01"
-                value={profileScale}
-                onChange={(event) =>
-                  setProfileScale(parseFloat(event.target.value))
-                }
-                className="w-full accent-blue-600"
-                disabled={!profilePreview || !framePreview}
-              />
-            </div>
-            <div>
-              <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
-                <span>Frame Zoom</span>
-                <span>{Math.round(frameScale * 100)}%</span>
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="1.5"
-                step="0.01"
-                value={frameScale}
-                onChange={(event) =>
-                  setFrameScale(parseFloat(event.target.value))
-                }
-                className="w-full accent-cyan-600"
-                disabled={!profilePreview || !framePreview}
-              />
-            </div>
-          </div>
+          {/* Controls for Active Layer */}
+          <div className="space-y-6">
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                {activeLayer === 'profile' ? <Circle className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                {activeLayer === 'profile' ? 'Profile Controls' : 'Frame Controls'}
+              </h3>
 
-          <div className="grid gap-6 md:grid-cols-3 mt-6">
-            <div>
-              <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
-                <span>Rotate</span>
-                <span>{profileRotation}°</span>
-              </label>
-              <input
-                type="range"
-                min="-45"
-                max="45"
-                step="1"
-                value={profileRotation}
-                onChange={(event) =>
-                  setProfileRotation(parseInt(event.target.value, 10))
-                }
-                className="w-full accent-violet-600"
-                disabled={!profilePreview || !framePreview}
-              />
-            </div>
-            <div>
-              <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
-                <span>Move Left/Right</span>
-                <span>{profileOffsetX}px</span>
-              </label>
-              <input
-                type="range"
-                min="-100"
-                max="100"
-                step="1"
-                value={profileOffsetX}
-                onChange={(event) =>
-                  setProfileOffsetX(parseInt(event.target.value, 10))
-                }
-                className="w-full accent-indigo-600"
-                disabled={!profilePreview || !framePreview}
-              />
-            </div>
-            <div>
-              <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
-                <span>Move Up/Down</span>
-                <span>{profileOffsetY}px</span>
-              </label>
-              <input
-                type="range"
-                min="-100"
-                max="100"
-                step="1"
-                value={profileOffsetY}
-                onChange={(event) =>
-                  setProfileOffsetY(parseInt(event.target.value, 10))
-                }
-                className="w-full accent-purple-600"
-                disabled={!profilePreview || !framePreview}
-              />
-            </div>
-          </div>
+              <div className="grid gap-6 md:grid-cols-2">
+                <div>
+                  <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
+                    <span>Zoom</span>
+                    <span>{Math.round((activeLayer === 'profile' ? profileScale : frameScale) * 100)}%</span>
+                  </label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1.5"
+                    step="0.01"
+                    value={activeLayer === 'profile' ? profileScale : frameScale}
+                    onChange={(event) => {
+                      const val = parseFloat(event.target.value);
+                      activeLayer === 'profile' ? setProfileScale(val) : setFrameScale(val);
+                    }}
+                    className={`w-full ${activeLayer === 'profile' ? 'accent-blue-600' : 'accent-cyan-600'}`}
+                    disabled={!profilePreview || !framePreview}
+                  />
+                </div>
 
-          <p className="text-sm text-gray-500 mt-6">
-            Adjust the zoom levels until your photo and frame align perfectly. The
-            generated image will use the preview settings.
-          </p>
+                {activeLayer === 'profile' && (
+                  <div>
+                    <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
+                      <span>Rotate</span>
+                      <span>{profileRotation}°</span>
+                    </label>
+                    <input
+                      type="range"
+                      min="-45"
+                      max="45"
+                      step="1"
+                      value={profileRotation}
+                      onChange={(event) => setProfileRotation(parseInt(event.target.value, 10))}
+                      className="w-full accent-violet-600"
+                      disabled={!profilePreview || !framePreview}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="grid gap-6 md:grid-cols-2 mt-4">
+                <div>
+                  <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
+                    <span>Move X</span>
+                    <span>{activeLayer === 'profile' ? profileOffsetX : frameOffsetX}px</span>
+                  </label>
+                  <input
+                    type="range"
+                    min="-200"
+                    max="200"
+                    step="1"
+                    value={activeLayer === 'profile' ? profileOffsetX : frameOffsetX}
+                    onChange={(event) => {
+                      const val = parseInt(event.target.value, 10);
+                      activeLayer === 'profile' ? setProfileOffsetX(val) : setFrameOffsetX(val);
+                    }}
+                    className="w-full accent-indigo-600"
+                    disabled={!profilePreview || !framePreview}
+                  />
+                </div>
+                <div>
+                  <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
+                    <span>Move Y</span>
+                    <span>{activeLayer === 'profile' ? profileOffsetY : frameOffsetY}px</span>
+                  </label>
+                  <input
+                    type="range"
+                    min="-200"
+                    max="200"
+                    step="1"
+                    value={activeLayer === 'profile' ? profileOffsetY : frameOffsetY}
+                    onChange={(event) => {
+                      const val = parseInt(event.target.value, 10);
+                      activeLayer === 'profile' ? setProfileOffsetY(val) : setFrameOffsetY(val);
+                    }}
+                    className="w-full accent-purple-600"
+                    disabled={!profilePreview || !framePreview}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-500">
+              Tip: Use the layer panel above to switch between editing the profile photo and frame.
+            </p>
+          </div>
         </div>
 
         <div className="text-center mb-8">
