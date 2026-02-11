@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ImageUploader } from './components/ImageUploader';
+import { FrameSelector } from './components/FrameSelector';
 import {
   mergeImages,
   downloadImage,
@@ -19,6 +20,14 @@ function App() {
   const [profileRotation, setProfileRotation] = useState(0);
   const [profileOffsetX, setProfileOffsetX] = useState(0);
   const [profileOffsetY, setProfileOffsetY] = useState(0);
+  const [frameOffsetX, setFrameOffsetX] = useState(0);
+  const [frameOffsetY, setFrameOffsetY] = useState(0);
+
+  // Dragging state
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragTarget, setDragTarget] = useState<'profile' | 'frame' | null>(null);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const profileImageElementRef = useRef<HTMLImageElement | null>(null);
   const frameImageElementRef = useRef<HTMLImageElement | null>(null);
@@ -38,6 +47,23 @@ function App() {
     const url = URL.createObjectURL(file);
     setFramePreview(url);
     setFrameScale(1);
+    setFrameOffsetX(0);
+    setFrameOffsetY(0);
+  };
+
+  const handlePredefinedFrameSelect = async (imageUrl: string) => {
+    setIsProcessing(true);
+    try {
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      const file = new File([blob], "selected-frame.png", { type: "image/png" });
+      handleFrameSelect(file);
+    } catch (error) {
+      console.error("Failed to load predefined frame:", error);
+      alert("Failed to load frame. Please try again.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleClearProfile = () => {
@@ -57,6 +83,8 @@ function App() {
     setFramePreview('');
     setMergedImage('');
     setFrameScale(1);
+    setFrameOffsetX(0);
+    setFrameOffsetY(0);
   };
 
   const renderPreview = useCallback(() => {
@@ -76,6 +104,11 @@ function App() {
       return;
     }
 
+    // Determine square size based on frame dimensions (or just max dimension)
+    const frameWidth = frameImg.naturalWidth || frameImg.width;
+    const frameHeight = frameImg.naturalHeight || frameImg.height;
+    const squareSize = Math.max(frameWidth, frameHeight);
+
     try {
       renderCompositeToCanvas(canvas, ctx, profileImg, frameImg, {
         profileScale,
@@ -83,6 +116,9 @@ function App() {
         profileRotation,
         profileOffsetX,
         profileOffsetY,
+        frameOffsetX,
+        frameOffsetY,
+        outputSize: squareSize, // Enforce square output
       });
     } catch (error) {
       console.error('Failed to render preview:', error);
@@ -93,10 +129,122 @@ function App() {
     profileRotation,
     profileOffsetX,
     profileOffsetY,
+    frameOffsetX,
+    frameOffsetY,
   ]);
+
+  // --- Drag Handling ---
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!previewCanvasRef.current) return;
+
+    // We need to determine if the user clicked on a non-transparent part of the FRAME.
+    // If yes -> Drag Frame.
+    // If no -> Drag Profile.
+
+    const canvas = previewCanvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const clickX = (e.clientX - rect.left) * scaleX;
+    const clickY = (e.clientY - rect.top) * scaleY;
+
+    // Check pixel at click location
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let hitFrame = false;
+    const frameImg = frameImageElementRef.current;
+
+    if (frameImg) {
+      const frameWidth = frameImg.naturalWidth || frameImg.width;
+      const frameHeight = frameImg.naturalHeight || frameImg.height;
+      const squareSize = Math.max(frameWidth, frameHeight);
+
+      const scaledFrameWidth = frameWidth * frameScale;
+      const scaledFrameHeight = frameHeight * frameScale;
+
+      // Calculate where the frame is drawn on the canvas
+      // (Must match logic in renderCompositeToCanvas)
+      const startFrameX = (squareSize - scaledFrameWidth) / 2;
+      const startFrameY = (squareSize - scaledFrameHeight) / 2;
+      const frameDrawX = startFrameX + frameOffsetX;
+      const frameDrawY = startFrameY + frameOffsetY;
+
+      // Check if click is within frame bounds
+      if (clickX >= frameDrawX && clickX <= frameDrawX + scaledFrameWidth &&
+        clickY >= frameDrawY && clickY <= frameDrawY + scaledFrameHeight) {
+
+        // Map click to source image coordinates
+        const relativeX = (clickX - frameDrawX) / frameScale;
+        const relativeY = (clickY - frameDrawY) / frameScale;
+
+        // To check alpha, we can draw the frame to a temp canvas
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = 1;
+        tempCanvas.height = 1;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (tempCtx) {
+          tempCtx.drawImage(frameImg, relativeX, relativeY, 1, 1, 0, 0, 1, 1);
+          const pixel = tempCtx.getImageData(0, 0, 1, 1).data;
+          if (pixel[3] > 10) { // Alpha threshold
+            hitFrame = true;
+          }
+        }
+      }
+    }
+
+    setDragTarget(hitFrame ? 'frame' : 'profile');
+    setIsDragging(true);
+    setDragStart({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDragging || !dragTarget || !previewCanvasRef.current) return;
+
+    const canvas = previewCanvasRef.current;
+
+    // Calculate movement in CSS pixels
+    const deltaX = e.clientX - dragStart.x;
+    const deltaY = e.clientY - dragStart.y;
+
+    // Convert to Canvas pixels
+    const rect = canvas.getBoundingClientRect();
+    const scaleFactor = canvas.width / rect.width;
+
+    const canvasDeltaX = deltaX * scaleFactor;
+    const canvasDeltaY = deltaY * scaleFactor;
+
+    if (dragTarget === 'profile') {
+      setProfileOffsetX((prev) => prev + canvasDeltaX);
+      setProfileOffsetY((prev) => prev + canvasDeltaY);
+    } else {
+      setFrameOffsetX((prev) => prev + canvasDeltaX);
+      setFrameOffsetY((prev) => prev + canvasDeltaY);
+    }
+
+    setDragStart({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setDragTarget(null);
+  };
+
+  const handleMouseLeave = () => {
+    if (isDragging) {
+      setIsDragging(false);
+      setDragTarget(null);
+    }
+  }
 
   const handleGenerate = async () => {
     if (!profileImage || !frameImage) return;
+
+    const frameImg = frameImageElementRef.current;
+    const frameWidth = frameImg ? (frameImg.naturalWidth || frameImg.width) : 1000;
+    const frameHeight = frameImg ? (frameImg.naturalHeight || frameImg.height) : 1000;
+    const squareSize = Math.max(frameWidth, frameHeight);
 
     setIsProcessing(true);
     try {
@@ -106,6 +254,9 @@ function App() {
         profileRotation,
         profileOffsetX,
         profileOffsetY,
+        frameOffsetX,
+        frameOffsetY,
+        outputSize: squareSize, // Enforce square output
       });
       const url = URL.createObjectURL(blob);
       setMergedImage(url);
@@ -261,6 +412,11 @@ function App() {
           </div>
         </div>
 
+        <FrameSelector
+          onFrameSelect={handlePredefinedFrameSelect}
+          selectedUrl={frameImage ? URL.createObjectURL(frameImage) : undefined}
+        />
+
         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 hover:shadow-2xl transition-shadow mb-8">
           <div className="flex items-center gap-2 mb-6">
             <div className="bg-emerald-100 p-2 rounded-lg">
@@ -269,13 +425,22 @@ function App() {
             <h2 className="text-2xl font-semibold text-gray-800">Live Preview</h2>
           </div>
 
-          <div className="bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4 flex items-center justify-center min-h-[280px] mb-6">
+          <div className="bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4 flex items-center justify-center min-h-[400px] mb-6">
             {profilePreview && framePreview ? (
-              <canvas
-                ref={previewCanvasRef}
-                className="w-full max-w-2xl rounded-lg shadow-lg"
-                style={{ height: 'auto' }}
-              />
+              <div className="relative shadow-xl rounded-lg overflow-hidden cursor-move">
+                <canvas
+                  ref={previewCanvasRef}
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseLeave}
+                  className="w-full max-w-2xl bg-white"
+                  style={{ height: 'auto', touchAction: 'none' }}
+                />
+                <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded pointer-events-none">
+                  Drag enabled ({dragTarget ? dragTarget.toUpperCase() : 'Hover to drag'})
+                </div>
+              </div>
             ) : (
               <p className="text-gray-500 text-center">
                 Upload both your photo and frame to see a live preview.
@@ -291,7 +456,7 @@ function App() {
               </label>
               <input
                 type="range"
-                min="0.5"
+                min="0"
                 max="1.5"
                 step="0.01"
                 value={profileScale}
@@ -309,8 +474,8 @@ function App() {
               </label>
               <input
                 type="range"
-                min="0.8"
-                max="1.2"
+                min="0"
+                max="1.5"
                 step="0.01"
                 value={frameScale}
                 onChange={(event) =>

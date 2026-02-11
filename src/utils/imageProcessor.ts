@@ -4,6 +4,9 @@ export interface CompositeOptions {
   profileRotation?: number; // degrees
   profileOffsetX?: number; // pixels
   profileOffsetY?: number; // pixels
+  frameOffsetX?: number; // pixels
+  frameOffsetY?: number; // pixels
+  outputSize?: number; // Optional square size. If not provided, uses frame dimensions.
 }
 
 export function renderCompositeToCanvas(
@@ -17,6 +20,9 @@ export function renderCompositeToCanvas(
     profileRotation = 0,
     profileOffsetX = 0,
     profileOffsetY = 0,
+    frameOffsetX = 0,
+    frameOffsetY = 0,
+    outputSize,
   }: CompositeOptions = {}
 ) {
   const frameWidth = frame.naturalWidth || frame.width;
@@ -28,28 +34,45 @@ export function renderCompositeToCanvas(
     throw new Error('Invalid image dimensions');
   }
 
-  canvas.width = frameWidth;
-  canvas.height = frameHeight;
+  // Determine canvas dimensions
+  if (outputSize) {
+    canvas.width = outputSize;
+    canvas.height = outputSize;
+  } else {
+    // Default to frame dimensions if no output size specified (legacy behavior, though we will likely use outputSize)
+    canvas.width = frameWidth;
+    canvas.height = frameHeight;
+  }
 
   const scaledFrameWidth = frameWidth * frameScale;
   const scaledFrameHeight = frameHeight * frameScale;
 
+  // Profile calculations depend on canvas size
   const baseProfileScale = Math.max(
     canvas.width / profileWidth,
     canvas.height / profileHeight
   );
   const finalProfileWidth = profileWidth * baseProfileScale * profileScale;
   const finalProfileHeight = profileHeight * baseProfileScale * profileScale;
-  const baseProfileOffsetX = (canvas.width - finalProfileWidth) / 2;
-  const baseProfileOffsetY = (canvas.height - finalProfileHeight) / 2;
-  const profileCenterX = baseProfileOffsetX + finalProfileWidth / 2 + profileOffsetX;
-  const profileCenterY = baseProfileOffsetY + finalProfileHeight / 2 + profileOffsetY;
+
+  // Center profile by default relative to canvas
+  const startProfileX = (canvas.width - finalProfileWidth) / 2;
+  const startProfileY = (canvas.height - finalProfileHeight) / 2;
+
+  const profileCenterX = startProfileX + finalProfileWidth / 2 + profileOffsetX;
+  const profileCenterY = startProfileY + finalProfileHeight / 2 + profileOffsetY;
   const rotationRadians = (profileRotation * Math.PI) / 180;
 
-  const frameOffsetX = (canvas.width - scaledFrameWidth) / 2;
-  const frameOffsetY = (canvas.height - scaledFrameHeight) / 2;
+  // Frame calculations - centered by default relative to canvas
+  const startFrameX = (canvas.width - scaledFrameWidth) / 2;
+  const startFrameY = (canvas.height - scaledFrameHeight) / 2;
+
+  const finalFrameX = startFrameX + frameOffsetX;
+  const finalFrameY = startFrameY + frameOffsetY;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Draw Profile
   ctx.save();
   ctx.translate(profileCenterX, profileCenterY);
   ctx.rotate(rotationRadians);
@@ -61,7 +84,9 @@ export function renderCompositeToCanvas(
     finalProfileHeight
   );
   ctx.restore();
-  ctx.drawImage(frame, frameOffsetX, frameOffsetY, scaledFrameWidth, scaledFrameHeight);
+
+  // Draw Frame
+  ctx.drawImage(frame, finalFrameX, finalFrameY, scaledFrameWidth, scaledFrameHeight);
 }
 
 export async function mergeImages(
@@ -88,6 +113,9 @@ export async function mergeImages(
       profileRotation = 0,
       profileOffsetX = 0,
       profileOffsetY = 0,
+      frameOffsetX = 0,
+      frameOffsetY = 0,
+      outputSize,
     } = options;
 
     let profileLoaded = false;
@@ -103,6 +131,9 @@ export async function mergeImages(
           profileRotation,
           profileOffsetX,
           profileOffsetY,
+          frameOffsetX,
+          frameOffsetY,
+          outputSize,
         });
       } catch (error) {
         URL.revokeObjectURL(profileUrl);
