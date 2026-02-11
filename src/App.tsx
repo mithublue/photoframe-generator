@@ -6,7 +6,7 @@ import {
   downloadImage,
   renderCompositeToCanvas,
 } from './utils/imageProcessor';
-import { Download, Sparkles, Image as ImageIcon, Layers, Circle, Square, MousePointer2 } from 'lucide-react';
+import { Download, Sparkles, Image as ImageIcon, Circle, MousePointer2, Square } from 'lucide-react';
 
 function App() {
   const [profileImage, setProfileImage] = useState<File | null>(null);
@@ -25,10 +25,10 @@ function App() {
 
   // UI State
   const [showMask, setShowMask] = useState(false);
-  const [activeLayer, setActiveLayer] = useState<'profile' | 'frame'>('profile');
 
   // Dragging state
   const [isDragging, setIsDragging] = useState(false);
+  const [dragTarget, setDragTarget] = useState<'profile' | 'frame' | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -43,7 +43,6 @@ function App() {
     setProfileRotation(0);
     setProfileOffsetX(0);
     setProfileOffsetY(0);
-    setActiveLayer('profile'); // Switch focus
   };
 
   const handleFrameSelect = (file: File) => {
@@ -53,7 +52,6 @@ function App() {
     setFrameScale(1);
     setFrameOffsetX(0);
     setFrameOffsetY(0);
-    setActiveLayer('frame'); // Switch focus
   };
 
   const handlePredefinedFrameSelect = async (imageUrl: string) => {
@@ -107,7 +105,6 @@ function App() {
       return;
     }
 
-    // Determine square size based on frame dimensions (or just max dimension)
     const frameWidth = frameImg.naturalWidth || frameImg.width;
     const frameHeight = frameImg.naturalHeight || frameImg.height;
     const squareSize = Math.max(frameWidth, frameHeight);
@@ -121,27 +118,21 @@ function App() {
         profileOffsetY,
         frameOffsetX,
         frameOffsetY,
-        outputSize: squareSize, // Enforce square output
+        outputSize: squareSize,
       });
 
-      // Draw Circular Mask if enabled
       if (showMask) {
         ctx.save();
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; // Semi-transparent black
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
         ctx.beginPath();
-        // Outer rectangle (full canvas)
         ctx.rect(0, 0, canvas.width, canvas.height);
-        // Inner circle (anticlockwise to create hole)
         ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2, 0, Math.PI * 2, true);
         ctx.fill();
-
-        // Draw a subtle border for the circle
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2 - 1, 0, Math.PI * 2);
         ctx.stroke();
-
         ctx.restore();
       }
 
@@ -159,31 +150,73 @@ function App() {
     showMask
   ]);
 
-  // --- Drag Handling ---
-
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!previewCanvasRef.current) return;
+
+    const canvas = previewCanvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const clickX = (e.clientX - rect.left) * scaleX;
+    const clickY = (e.clientY - rect.top) * scaleY;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let hitFrame = false;
+    const frameImg = frameImageElementRef.current;
+
+    if (frameImg) {
+      const frameWidth = frameImg.naturalWidth || frameImg.width;
+      const frameHeight = frameImg.naturalHeight || frameImg.height;
+      const squareSize = Math.max(frameWidth, frameHeight);
+
+      const scaledFrameWidth = frameWidth * frameScale;
+      const scaledFrameHeight = frameHeight * frameScale;
+
+      const startFrameX = (squareSize - scaledFrameWidth) / 2;
+      const startFrameY = (squareSize - scaledFrameHeight) / 2;
+      const frameDrawX = startFrameX + frameOffsetX;
+      const frameDrawY = startFrameY + frameOffsetY;
+
+      if (clickX >= frameDrawX && clickX <= frameDrawX + scaledFrameWidth &&
+        clickY >= frameDrawY && clickY <= frameDrawY + scaledFrameHeight) {
+
+        const relativeX = (clickX - frameDrawX) / frameScale;
+        const relativeY = (clickY - frameDrawY) / frameScale;
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = 1;
+        tempCanvas.height = 1;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (tempCtx) {
+          tempCtx.drawImage(frameImg, relativeX, relativeY, 1, 1, 0, 0, 1, 1);
+          const pixel = tempCtx.getImageData(0, 0, 1, 1).data;
+          if (pixel[3] > 10) {
+            hitFrame = true;
+          }
+        }
+      }
+    }
+
+    setDragTarget(hitFrame ? 'frame' : 'profile');
     setIsDragging(true);
     setDragStart({ x: e.clientX, y: e.clientY });
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDragging || !previewCanvasRef.current) return;
+    if (!isDragging || !dragTarget || !previewCanvasRef.current) return;
 
     const canvas = previewCanvasRef.current;
-
-    // Calculate movement in CSS pixels
     const deltaX = e.clientX - dragStart.x;
     const deltaY = e.clientY - dragStart.y;
-
-    // Convert to Canvas pixels
     const rect = canvas.getBoundingClientRect();
     const scaleFactor = canvas.width / rect.width;
 
     const canvasDeltaX = deltaX * scaleFactor;
     const canvasDeltaY = deltaY * scaleFactor;
 
-    if (activeLayer === 'profile') {
+    if (dragTarget === 'profile') {
       setProfileOffsetX((prev) => prev + canvasDeltaX);
       setProfileOffsetY((prev) => prev + canvasDeltaY);
     } else {
@@ -196,11 +229,13 @@ function App() {
 
   const handleMouseUp = () => {
     setIsDragging(false);
+    setDragTarget(null);
   };
 
   const handleMouseLeave = () => {
     setIsDragging(false);
-  }
+    setDragTarget(null);
+  };
 
   const handleGenerate = async () => {
     if (!profileImage || !frameImage) return;
@@ -220,7 +255,7 @@ function App() {
         profileOffsetY,
         frameOffsetX,
         frameOffsetY,
-        outputSize: squareSize, // Enforce square output
+        outputSize: squareSize,
       });
       const url = URL.createObjectURL(blob);
       setMergedImage(url);
@@ -234,7 +269,6 @@ function App() {
 
   const handleDownload = () => {
     if (!mergedImage) return;
-
     fetch(mergedImage)
       .then((res) => res.blob())
       .then((blob) => {
@@ -347,67 +381,23 @@ function App() {
           selectedUrl={frameImage ? URL.createObjectURL(frameImage) : undefined}
         />
 
-        {/* Layer Control Panel - Horizontal */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100 mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <h2 className="text-xl font-semibold text-gray-800">Layers</h2>
-          </div>
-
-          <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
-            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-              <button
-                onClick={() => setActiveLayer('frame')}
-                className={`group flex items-center justify-between p-4 rounded-xl border-2 transition-all ${activeLayer === 'frame'
-                    ? 'border-cyan-500 bg-cyan-50 ring-2 ring-cyan-100'
-                    : 'border-slate-100 hover:border-slate-200 bg-slate-50'
-                  }`}
-              >
-                <div className="text-left">
-                  <div className={`font-medium ${activeLayer === 'frame' ? 'text-cyan-900' : 'text-slate-600'}`}>Select Frame</div>
-                  <div className="text-xs text-slate-400">Top Layer</div>
-                </div>
-              </button>
-
-              <button
-                onClick={() => setActiveLayer('profile')}
-                className={`group flex items-center justify-between p-4 rounded-xl border-2 transition-all ${activeLayer === 'profile'
-                    ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-100'
-                    : 'border-slate-100 hover:border-slate-200 bg-slate-50'
-                  }`}
-              >
-                <div className="text-left">
-                  <div className={`font-medium ${activeLayer === 'profile' ? 'text-blue-900' : 'text-slate-600'}`}>Select Profile Photo</div>
-                  <div className="text-xs text-slate-400">Bottom Layer</div>
-                </div>
-              </button>
-            </div>
-
-            <div className="flex items-center gap-4 px-4 border-l border-gray-100 min-w-[200px]">
-              <div>
-                <label className="flex items-center gap-3 cursor-pointer group">
-                  <span className="font-medium text-gray-700 group-hover:text-gray-900">Facebook Preview</span>
-                  <div
-                    className={`w-12 h-6 rounded-full p-1 transition-colors duration-200 ease-in-out ${showMask ? 'bg-indigo-600' : 'bg-slate-200'}`}
-                    onClick={() => setShowMask(!showMask)}
-                  >
-                    <div className={`w-4 h-4 rounded-full bg-white shadow-sm transform transition-transform duration-200 ${showMask ? 'translate-x-6' : 'translate-x-0'}`} />
-                  </div>
-                </label>
-                <p className="text-xs text-slate-400 mt-1">
-                  Shows circular crop
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Canvas Area */}
-        <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 hover:shadow-2xl transition-shadow mb-8">
-          <div className="flex items-center gap-2 mb-6">
+        <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100 hover:shadow-2xl transition-shadow mb-8 mt-12">
+          <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-semibold text-gray-800">Live Preview</h2>
+            <div className="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-full border border-slate-100">
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <span className="font-medium text-gray-700 text-sm group-hover:text-gray-900">Facebook Preview</span>
+                <div
+                  className={`w-10 h-5 rounded-full p-1 transition-colors duration-200 ease-in-out ${showMask ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                  onClick={() => setShowMask(!showMask)}
+                >
+                  <div className={`w-3 h-3 rounded-full bg-white shadow-sm transform transition-transform duration-200 ${showMask ? 'translate-x-5' : 'translate-x-0'}`} />
+                </div>
+              </label>
+            </div>
           </div>
 
-          <div className="bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4 flex items-center justify-center min-h-[400px] mb-6 relative">
+          <div className="bg-slate-50 rounded-xl border border-dashed border-slate-200 p-4 flex items-center justify-center min-h-[400px] mb-8 relative">
             {profilePreview && framePreview ? (
               <div className="relative shadow-xl rounded-lg overflow-hidden cursor-move">
                 <canvas
@@ -421,7 +411,7 @@ function App() {
                 />
                 <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm text-white text-xs px-3 py-1.5 rounded-lg pointer-events-none flex items-center gap-2 border border-white/10">
                   <MousePointer2 className="w-3 h-3" />
-                  <span>Dragging: <strong>{activeLayer === 'profile' ? 'Profile Photo' : 'Frame'}</strong></span>
+                  <span>{dragTarget ? (dragTarget === 'frame' ? 'Moving Frame' : 'Moving Profile photo') : 'Click and Drag to move layers'}</span>
                 </div>
               </div>
             ) : (
@@ -431,39 +421,33 @@ function App() {
             )}
           </div>
 
-          {/* Controls for Active Layer */}
-          <div className="space-y-6">
-            <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-                {activeLayer === 'profile' ? <Circle className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                {activeLayer === 'profile' ? 'Profile Controls' : 'Frame Controls'}
-              </h3>
-
-              <div className="grid gap-6 md:grid-cols-2">
-                <div>
-                  <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
-                    <span>Zoom</span>
-                    <span>{Math.round((activeLayer === 'profile' ? profileScale : frameScale) * 100)}%</span>
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1.5"
-                    step="0.01"
-                    value={activeLayer === 'profile' ? profileScale : frameScale}
-                    onChange={(event) => {
-                      const val = parseFloat(event.target.value);
-                      activeLayer === 'profile' ? setProfileScale(val) : setFrameScale(val);
-                    }}
-                    className={`w-full ${activeLayer === 'profile' ? 'accent-blue-600' : 'accent-cyan-600'}`}
-                    disabled={!profilePreview || !framePreview}
-                  />
-                </div>
-
-                {activeLayer === 'profile' && (
+          <div className="space-y-8">
+            <div className="grid gap-8 md:grid-cols-2">
+              <div className="p-6 bg-blue-50/50 rounded-2xl border border-blue-100">
+                <h3 className="text-sm font-bold text-blue-600 uppercase tracking-widest mb-6 flex items-center gap-2">
+                  <Circle className="w-4 h-4" />
+                  Profile Controls
+                </h3>
+                <div className="space-y-6">
                   <div>
                     <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
-                      <span>Rotate</span>
+                      <span>Zoom</span>
+                      <span>{Math.round(profileScale * 100)}%</span>
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1.5"
+                      step="0.01"
+                      value={profileScale}
+                      onChange={(e) => setProfileScale(parseFloat(e.target.value))}
+                      className="w-full accent-blue-600"
+                      disabled={!profilePreview}
+                    />
+                  </div>
+                  <div>
+                    <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
+                      <span>Rotation</span>
                       <span>{profileRotation}°</span>
                     </label>
                     <input
@@ -472,59 +456,96 @@ function App() {
                       max="45"
                       step="1"
                       value={profileRotation}
-                      onChange={(event) => setProfileRotation(parseInt(event.target.value, 10))}
+                      onChange={(e) => setProfileRotation(parseInt(e.target.value, 10))}
                       className="w-full accent-violet-600"
-                      disabled={!profilePreview || !framePreview}
+                      disabled={!profilePreview}
                     />
                   </div>
-                )}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 block">Offset X</label>
+                      <input
+                        type="range"
+                        min="-200"
+                        max="200"
+                        value={profileOffsetX}
+                        onChange={(e) => setProfileOffsetX(parseInt(e.target.value, 10))}
+                        className="w-full accent-indigo-600"
+                        disabled={!profilePreview}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 block">Offset Y</label>
+                      <input
+                        type="range"
+                        min="-200"
+                        max="200"
+                        value={profileOffsetY}
+                        onChange={(e) => setProfileOffsetY(parseInt(e.target.value, 10))}
+                        className="w-full accent-purple-600"
+                        disabled={!profilePreview}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div className="grid gap-6 md:grid-cols-2 mt-4">
-                <div>
-                  <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
-                    <span>Move X</span>
-                    <span>{activeLayer === 'profile' ? profileOffsetX : frameOffsetX}px</span>
-                  </label>
-                  <input
-                    type="range"
-                    min="-200"
-                    max="200"
-                    step="1"
-                    value={activeLayer === 'profile' ? profileOffsetX : frameOffsetX}
-                    onChange={(event) => {
-                      const val = parseInt(event.target.value, 10);
-                      activeLayer === 'profile' ? setProfileOffsetX(val) : setFrameOffsetX(val);
-                    }}
-                    className="w-full accent-indigo-600"
-                    disabled={!profilePreview || !framePreview}
-                  />
-                </div>
-                <div>
-                  <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
-                    <span>Move Y</span>
-                    <span>{activeLayer === 'profile' ? profileOffsetY : frameOffsetY}px</span>
-                  </label>
-                  <input
-                    type="range"
-                    min="-200"
-                    max="200"
-                    step="1"
-                    value={activeLayer === 'profile' ? profileOffsetY : frameOffsetY}
-                    onChange={(event) => {
-                      const val = parseInt(event.target.value, 10);
-                      activeLayer === 'profile' ? setProfileOffsetY(val) : setFrameOffsetY(val);
-                    }}
-                    className="w-full accent-purple-600"
-                    disabled={!profilePreview || !framePreview}
-                  />
+              <div className="p-6 bg-cyan-50/50 rounded-2xl border border-cyan-100">
+                <h3 className="text-sm font-bold text-cyan-600 uppercase tracking-widest mb-6 flex items-center gap-2">
+                  <Square className="w-4 h-4" />
+                  Frame Controls
+                </h3>
+                <div className="space-y-6">
+                  <div>
+                    <label className="flex items-center justify-between text-sm font-medium text-gray-700 mb-2">
+                      <span>Zoom</span>
+                      <span>{Math.round(frameScale * 100)}%</span>
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1.5"
+                      step="0.01"
+                      value={frameScale}
+                      onChange={(e) => setFrameScale(parseFloat(e.target.value))}
+                      className="w-full accent-cyan-600"
+                      disabled={!framePreview}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 block">Offset X</label>
+                      <input
+                        type="range"
+                        min="-200"
+                        max="200"
+                        value={frameOffsetX}
+                        onChange={(e) => setFrameOffsetX(parseInt(e.target.value, 10))}
+                        className="w-full accent-cyan-600"
+                        disabled={!framePreview}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500 mb-1 block">Offset Y</label>
+                      <input
+                        type="range"
+                        min="-200"
+                        max="200"
+                        value={frameOffsetY}
+                        onChange={(e) => setFrameOffsetY(parseInt(e.target.value, 10))}
+                        className="w-full accent-cyan-600"
+                        disabled={!framePreview}
+                      />
+                    </div>
+                  </div>
+                  <div className="pt-4 mt-2 border-t border-cyan-100/50">
+                    <p className="text-xs text-cyan-700 italic">
+                      Tip: Drag layers directly on the preview to arrange them quickly.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
-
-            <p className="text-sm text-gray-500">
-              Tip: Use the layer panel above to switch between editing the profile photo and frame.
-            </p>
           </div>
         </div>
 
@@ -549,7 +570,6 @@ function App() {
                 Perfect for Facebook profile pictures and social media
               </p>
             </div>
-
             <div className="max-w-2xl mx-auto mb-6">
               <div className="relative group">
                 <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-2xl blur opacity-25 group-hover:opacity-75 transition duration-200"></div>
@@ -560,7 +580,6 @@ function App() {
                 />
               </div>
             </div>
-
             <div className="text-center">
               <button
                 onClick={handleDownload}
@@ -569,9 +588,6 @@ function App() {
                 <Download className="w-5 h-5" />
                 Download Image
               </button>
-              <p className="text-sm text-gray-500 mt-4">
-                Click download to save your framed photo to your device
-              </p>
             </div>
           </div>
         )}
