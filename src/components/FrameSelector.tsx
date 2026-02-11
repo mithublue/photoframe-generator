@@ -9,9 +9,10 @@ interface FrameSelectorProps {
 // Define available frames. In a real app, this could come from an API or a config file.
 // We'll list the one we just added.
 const AVAILABLE_FRAMES = [
-    { id: '1', url: '/frames/frame-1.png', label: 'Bangladesh Election 2026' },
-    { id: '2', url: '/frames/bnp_slogan.png', label: 'Slogan' },
-    { id: '3', url: '/frames/frame-3.png', label: 'Frame 3' },
+    { id: '1', url: '/frames/frame-1.png', label: 'BD Election 2026' },
+    { id: '2', url: '/frames/bnp_slogan.png', label: 'Dhaner Shish' },
+    { id: '3', url: '/frames/frame-3.png', label: 'Daripalla' },
+    { id: '4', url: '/frames/yes_vote.png', label: 'Yes Vote' },
 ];
 
 export function FrameSelector({ onFrameSelect, selectedUrl }: FrameSelectorProps) {
