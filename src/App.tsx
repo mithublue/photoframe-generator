@@ -6,7 +6,7 @@ import {
   downloadImage,
   renderCompositeToCanvas,
 } from './utils/imageProcessor';
-import { Download, Sparkles, Image as ImageIcon, Circle, MousePointer2, Square, Layers } from 'lucide-react';
+import { Download, Image as ImageIcon, Circle, MousePointer2, Square, Layers } from 'lucide-react';
 
 function App() {
   const [profileImage, setProfileImage] = useState<File | null>(null);
@@ -40,8 +40,6 @@ function App() {
 
   const sendSlackNotification = async (frameName: string) => {
     try {
-      // Create a fire-and-forget request with no-cors to avoid protocol errors
-      // using standard payload format for Slack Webhooks
       const payload = {
         text: `an user downloadeded a profile picture, frame: ${frameName}`
       };
@@ -358,7 +356,7 @@ function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
-        <div className="text-center mb-12">
+        <div className="text-center mb-12 relative">
           <div className="flex items-center justify-center gap-3 mb-4">
             <div className="bg-gradient-to-br from-blue-500 to-cyan-500 p-3 rounded-2xl shadow-lg">
               <ImageIcon className="w-8 h-8 text-white" />
