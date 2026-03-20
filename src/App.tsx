@@ -24,7 +24,7 @@ function App() {
   const [frameOffsetY, setFrameOffsetY] = useState(0);
 
   // UI State
-  const [showMask, setShowMask] = useState(false);
+  const [showMask, setShowMask] = useState(true);
   const [selectedFrameName, setSelectedFrameName] = useState<string>('None');
 
   // Dragging state
